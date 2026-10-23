@@ -46,8 +46,7 @@ abstract class AnyFlip : KeiSource() {
         return MangasPage(mangas, false)
     }
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
 
     override suspend fun getSearchMangaList(
         page: Int,
@@ -88,8 +87,7 @@ abstract class AnyFlip : KeiSource() {
         return loadBook(id).toManga()
     }
 
-    override fun getMangaUrl(manga: SManga): String =
-        "https://anyflip.com/dbeui/${manga.url}/"
+    override fun getMangaUrl(manga: SManga): String = "https://anyflip.com/dbeui/${manga.url}/"
 
     override suspend fun fetchMangaUpdate(
         manga: SManga,
@@ -120,8 +118,7 @@ abstract class AnyFlip : KeiSource() {
         return SMangaUpdate(details, chapterList)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String =
-        "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
+    override fun getChapterUrl(chapter: SChapter): String = "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val id = chapter.url.trim('/')
@@ -235,15 +232,14 @@ abstract class AnyFlip : KeiSource() {
         return "$ONLINE_BASE/$id/$path"
     }
 
-    private fun Book.toManga(): SManga =
-        SManga.create().apply {
-            url = id
-            title = this@toManga.title
-            description = this@toManga.description
-            thumbnail_url = this@toManga.thumbnail
-            status = SManga.COMPLETED
-            genre = "Turma da Mônica Jovem"
-        }
+    private fun Book.toManga(): SManga = SManga.create().apply {
+        url = id
+        title = this@toManga.title
+        description = this@toManga.description
+        thumbnail_url = this@toManga.thumbnail
+        status = SManga.COMPLETED
+        genre = "Turma da Mônica Jovem"
+    }
 
     private fun extractBookId(url: HttpUrl): String? {
         val segments = url.pathSegments.filter {
