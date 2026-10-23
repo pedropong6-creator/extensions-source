@@ -1,0 +1,44 @@
+name: Build AnyFlip
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Format source code
+        run: ./gradlew spotlessApply
+
+      - name: Commit formatting changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add src/pt/anyflip/AnyFlip.kt
+
+          if git diff --cached --quiet; then
+            echo "No formatting changes to commit."
+          else
+            git commit -m "Format AnyFlip extension"
+            git push origin main
+          fi
+
+      - name: Build AnyFlip
+        run: ./gradlew :src:pt:anyflip:assembleDebug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: anyflip-debug
+          path: src/pt/anyflip/build/outputs/apk/debug/*.apk
