@@ -25,7 +25,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add src/pt/anyflip/AnyFlip.kt
+          git add src/pt/anyflip/src/eu/kanade/tachiyomi/extension/pt/anyflip/AnyFlip.kt
 
           if git diff --cached --quiet; then
             echo "No formatting changes to commit."
