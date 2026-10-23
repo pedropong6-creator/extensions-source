@@ -29,16 +29,15 @@ abstract class AnyFlip : KeiSource() {
 
         val ids = discoverBookIds()
 
-        val mangas = ids.mapNotNull { id ->
-            runCatching {
-                loadBook(id).toManga()
-            }.getOrNull()
+        val mangas = ids.map { id ->
+            loadBook(id).toManga()
         }
 
         return MangasPage(mangas, false)
     }
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        getPopularManga(page)
 
     override suspend fun getSearchMangaList(
         page: Int,
@@ -57,14 +56,14 @@ abstract class AnyFlip : KeiSource() {
 
         val ids = discoverBookIds()
 
-        val mangas = ids.mapNotNull { id ->
-            runCatching {
+        val mangas = ids
+            .map { id ->
                 loadBook(id).toManga()
-            }.getOrNull()
-        }.filter {
-            it.title.contains(q, ignoreCase = true) ||
-                it.description.orEmpty().contains(q, ignoreCase = true)
-        }
+            }
+            .filter {
+                it.title.contains(q, ignoreCase = true) ||
+                    it.description.orEmpty().contains(q, ignoreCase = true)
+            }
 
         return MangasPage(mangas, false)
     }
@@ -72,12 +71,11 @@ abstract class AnyFlip : KeiSource() {
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         val id = extractBookId(url) ?: return null
 
-        return runCatching {
-            loadBook(id).toManga()
-        }.getOrNull()
+        return loadBook(id).toManga()
     }
 
-    override fun getMangaUrl(manga: SManga): String = "https://anyflip.com/dbeui/${manga.url}/"
+    override fun getMangaUrl(manga: SManga): String =
+        "https://anyflip.com/dbeui/${manga.url}/"
 
     override suspend fun fetchMangaUpdate(
         manga: SManga,
@@ -108,7 +106,8 @@ abstract class AnyFlip : KeiSource() {
         return SMangaUpdate(details, chapterList)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String = "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
+    override fun getChapterUrl(chapter: SChapter): String =
+        "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val id = chapter.url.trim('/')
@@ -129,22 +128,40 @@ abstract class AnyFlip : KeiSource() {
      *
      * https://anyflip.com/dbeui/xxxx/
      *
-     * The homepage contains links to the account's publications,
-     * so we extract those IDs instead of maintaining a hard-coded list.
+     * The homepage contains links to the account's publications.
      */
     private suspend fun discoverBookIds(): List<String> {
         val response = client.get(getHomeUrl())
         val html = response.body.string()
 
-        val pattern = Regex(
-            """href\s*=\s*["'](?:https?:)?//anyflip\.com/dbeui/([A-Za-z0-9_-]+)(?:/[^"']*)?["']""",
-            RegexOption.IGNORE_CASE,
+        val patterns = listOf(
+            Regex(
+                """href\s*=\s*["'](?:https?:)?//anyflip\.com/dbeui/([A-Za-z0-9_-]+)(?:/[^"']*)?["']""",
+                RegexOption.IGNORE_CASE,
+            ),
+            Regex(
+                """["'](?:https?:)?//anyflip\.com/dbeui/([A-Za-z0-9_-]+)(?:/[^"']*)?["']""",
+                RegexOption.IGNORE_CASE,
+            ),
+            Regex(
+                """/dbeui/([A-Za-z0-9_-]+)(?:/[^"'?#\s]*)?""",
+                RegexOption.IGNORE_CASE,
+            ),
         )
 
-        return pattern.findAll(html)
-            .map { it.groupValues[1] }
+        val ids = patterns
+            .flatMap { pattern ->
+                pattern.findAll(html).map { it.groupValues[1] }.toList()
+            }
+            .filter { it.isNotBlank() }
             .distinct()
             .toList()
+
+        check(ids.isNotEmpty()) {
+            "No AnyFlip book IDs found on homepage"
+        }
+
+        return ids
     }
 
     private suspend fun loadBook(id: String): Book {
@@ -157,7 +174,7 @@ abstract class AnyFlip : KeiSource() {
         val end = text.lastIndexOf('}')
 
         require(start >= 0 && end > start) {
-            "Invalid AnyFlip config.js"
+            "Invalid AnyFlip config.js for book $id"
         }
 
         val root = Json.parseToJsonElement(
@@ -170,7 +187,7 @@ abstract class AnyFlip : KeiSource() {
             ?.get("title")
             ?.jsonPrimitive
             ?.content
-            ?: error("AnyFlip title not found")
+            ?: error("AnyFlip title not found for book $id")
 
         val description = meta
             ?.get("description")
@@ -210,7 +227,7 @@ abstract class AnyFlip : KeiSource() {
         }
 
         require(pages.isNotEmpty()) {
-            "No pages found in AnyFlip config.js"
+            "No pages found in AnyFlip config.js for book $id"
         }
 
         val thumbnail = pageEntries
@@ -247,14 +264,15 @@ abstract class AnyFlip : KeiSource() {
         return "$ONLINE_BASE/$id/$path"
     }
 
-    private fun Book.toManga(): SManga = SManga.create().apply {
-        url = id
-        title = this@toManga.title
-        description = this@toManga.description
-        thumbnail_url = this@toManga.thumbnail
-        status = SManga.COMPLETED
-        genre = "Turma da Mônica Jovem"
-    }
+    private fun Book.toManga(): SManga =
+        SManga.create().apply {
+            url = id
+            title = this@toManga.title
+            description = this@toManga.description
+            thumbnail_url = this@toManga.thumbnail
+            status = SManga.COMPLETED
+            genre = "Turma da Mônica Jovem"
+        }
 
     private fun extractBookId(url: HttpUrl): String? {
         val segments = url.pathSegments.filter {
