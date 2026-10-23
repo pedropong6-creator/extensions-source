@@ -27,7 +27,17 @@ abstract class AnyFlip : KeiSource() {
             return MangasPage(emptyList(), false)
         }
 
-        val ids = discoverBookIds()
+        // Temporary test:
+        // Replace YOUR_BOOK_ID with the ID from a working AnyFlip book URL.
+        //
+        // Example:
+        // https://anyflip.com/dbeui/abc123/
+        //
+        // becomes:
+        // "abc123"
+        val ids = listOf(
+            "fsif",
+        )
 
         val mangas = ids.map { id ->
             loadBook(id).toManga()
@@ -36,7 +46,8 @@ abstract class AnyFlip : KeiSource() {
         return MangasPage(mangas, false)
     }
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        getPopularManga(page)
 
     override suspend fun getSearchMangaList(
         page: Int,
@@ -53,7 +64,11 @@ abstract class AnyFlip : KeiSource() {
             return getPopularManga(1)
         }
 
-        val ids = discoverBookIds()
+        // Temporary test:
+        // Search currently uses the same known book.
+        val ids = listOf(
+            "fsif",
+        )
 
         val mangas = ids
             .map { id ->
@@ -73,7 +88,8 @@ abstract class AnyFlip : KeiSource() {
         return loadBook(id).toManga()
     }
 
-    override fun getMangaUrl(manga: SManga): String = "https://anyflip.com/dbeui/${manga.url}/"
+    override fun getMangaUrl(manga: SManga): String =
+        "https://anyflip.com/dbeui/${manga.url}/"
 
     override suspend fun fetchMangaUpdate(
         manga: SManga,
@@ -104,7 +120,8 @@ abstract class AnyFlip : KeiSource() {
         return SMangaUpdate(details, chapterList)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String = "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
+    override fun getChapterUrl(chapter: SChapter): String =
+        "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val id = chapter.url.trim('/')
@@ -116,49 +133,6 @@ abstract class AnyFlip : KeiSource() {
                 imageUrl = imageUrl,
             )
         }
-    }
-
-    /**
-     * Finds publication IDs belonging to the dbeui AnyFlip account.
-     *
-     * AnyFlip publication URLs look like:
-     *
-     * https://anyflip.com/dbeui/xxxx/
-     *
-     * The homepage contains links to the account's publications.
-     */
-    private suspend fun discoverBookIds(): List<String> {
-        val response = client.get(getHomeUrl())
-        val html = response.body.string()
-
-        val patterns = listOf(
-            Regex(
-                """href\s*=\s*["'](?:https?:)?//anyflip\.com/dbeui/([A-Za-z0-9_-]+)(?:/[^"']*)?["']""",
-                RegexOption.IGNORE_CASE,
-            ),
-            Regex(
-                """["'](?:https?:)?//anyflip\.com/dbeui/([A-Za-z0-9_-]+)(?:/[^"']*)?["']""",
-                RegexOption.IGNORE_CASE,
-            ),
-            Regex(
-                """/dbeui/([A-Za-z0-9_-]+)(?:/[^"'?#\s]*)?""",
-                RegexOption.IGNORE_CASE,
-            ),
-        )
-
-        val ids = patterns
-            .flatMap { pattern ->
-                pattern.findAll(html).map { it.groupValues[1] }.toList()
-            }
-            .filter { it.isNotBlank() }
-            .distinct()
-            .toList()
-
-        check(ids.isNotEmpty()) {
-            "No AnyFlip book IDs found on homepage"
-        }
-
-        return ids
     }
 
     private suspend fun loadBook(id: String): Book {
@@ -261,14 +235,15 @@ abstract class AnyFlip : KeiSource() {
         return "$ONLINE_BASE/$id/$path"
     }
 
-    private fun Book.toManga(): SManga = SManga.create().apply {
-        url = id
-        title = this@toManga.title
-        description = this@toManga.description
-        thumbnail_url = this@toManga.thumbnail
-        status = SManga.COMPLETED
-        genre = "Turma da Mônica Jovem"
-    }
+    private fun Book.toManga(): SManga =
+        SManga.create().apply {
+            url = id
+            title = this@toManga.title
+            description = this@toManga.description
+            thumbnail_url = this@toManga.thumbnail
+            status = SManga.COMPLETED
+            genre = "Turma da Mônica Jovem"
+        }
 
     private fun extractBookId(url: HttpUrl): String? {
         val segments = url.pathSegments.filter {
