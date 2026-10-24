@@ -21,32 +21,32 @@ abstract class AnyFlip : KeiSource() {
 
     override val supportsLatest: Boolean = false
 
-    override fun getHomeUrl(): String = "https://anyflip.com/homepage/dbeui/"
+    override fun getHomeUrl(): String =
+        "https://anyflip.com/homepage/dbeui/"
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        val ids = discoverBookIds()
-
-        val mangas = ids.mapNotNull { id ->
-            runCatching {
-                loadBook(id).toManga()
-            }.getOrNull()
-        }
+        val books = discoverBooks()
 
         val pageSize = 20
         val fromIndex = (page - 1) * pageSize
-        val toIndex = minOf(fromIndex + pageSize, mangas.size)
+        val toIndex = minOf(fromIndex + pageSize, books.size)
 
-        if (fromIndex >= mangas.size) {
+        if (fromIndex >= books.size) {
             return MangasPage(emptyList(), false)
         }
 
+        val mangas = books
+            .subList(fromIndex, toIndex)
+            .map { it.toManga() }
+
         return MangasPage(
-            mangas = mangas.subList(fromIndex, toIndex),
-            hasNextPage = toIndex < mangas.size,
+            mangas = mangas,
+            hasNextPage = toIndex < books.size,
         )
     }
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        getPopularManga(page)
 
     override suspend fun getSearchMangaList(
         page: Int,
@@ -63,29 +63,26 @@ abstract class AnyFlip : KeiSource() {
             return getPopularManga(1)
         }
 
-        val ids = discoverBookIds()
-
-        val mangas = ids.mapNotNull { id ->
-            runCatching {
-                loadBook(id).toManga()
-            }.getOrNull()
-        }.filter {
-            it.title.contains(q, ignoreCase = true) ||
-                it.description.orEmpty().contains(q, ignoreCase = true)
-        }
+        val mangas = discoverBooks()
+            .filter {
+                it.title.contains(q, ignoreCase = true) ||
+                    it.description.orEmpty().contains(q, ignoreCase = true)
+            }
+            .map { it.toManga() }
 
         return MangasPage(mangas, false)
     }
 
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
-        val id = extractBookId(url) ?: return null
+        val bookId = extractBookId(url) ?: return null
 
         return runCatching {
-            loadBook(id).toManga()
+            loadBook(bookId).toManga()
         }.getOrNull()
     }
 
-    override fun getMangaUrl(manga: SManga): String = "https://anyflip.com/dbeui/${manga.url}/"
+    override fun getMangaUrl(manga: SManga): String =
+        "$ONLINE_BASE/${manga.url.trim('/')}/"
 
     override suspend fun fetchMangaUpdate(
         manga: SManga,
@@ -116,7 +113,8 @@ abstract class AnyFlip : KeiSource() {
         return SMangaUpdate(details, chapterList)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String = "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
+    override fun getChapterUrl(chapter: SChapter): String =
+        "$ONLINE_BASE/${chapter.url.trim('/')}/"
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val id = chapter.url.trim('/')
@@ -124,26 +122,26 @@ abstract class AnyFlip : KeiSource() {
 
         return book.pages.mapIndexed { index, imageUrl ->
             Page(
-                index,
+                index = index,
                 imageUrl = imageUrl,
             )
         }
     }
 
     /**
-     * Gets all publication IDs belonging to the AnyFlip account.
+     * Gets the publications from the AnyFlip homepage API.
      *
-     * The public homepage is protected by Cloudflare, so we don't scrape
-     * the homepage itself. Instead, we use the endpoint the homepage
-     * uses to retrieve its publications:
+     * The numeric `bookid` is only an internal database ID.
      *
-     * https://anyflip.com/hostInfo/get-homepage-books1.php
+     * `bLink` is the actual publication identifier used in:
+     *
+     * https://online.anyflip.com/dbeui/{bLink}/
      */
-    private suspend fun discoverBookIds(): List<String> {
-        val pageSize = 20
-        val allIds = mutableListOf<String>()
-        val seenIds = mutableSetOf<String>()
+    private suspend fun discoverBooks(): List<BookSummary> {
+        val books = mutableListOf<BookSummary>()
+        val seenLinks = mutableSetOf<String>()
 
+        val pageSize = 20
         var page = 1
 
         while (true) {
@@ -154,60 +152,116 @@ abstract class AnyFlip : KeiSource() {
                 .addQueryParameter("page", page.toString())
                 .addQueryParameter("userid", USER_ID)
                 .addQueryParameter("myUid", "-1")
-                .addQueryParameter("lastTime", java.time.LocalDate.now().toString())
+                .addQueryParameter("lastTime", "2026-10-23")
                 .build()
 
             val response = client.get(url)
             val text = response.body.string()
 
-            val start = text.indexOf('{')
-            val end = text.lastIndexOf('}')
+            val jsonStart = text.indexOf('{')
+            val jsonEnd = text.lastIndexOf('}')
 
-            require(start >= 0 && end > start) {
-                "Invalid AnyFlip homepage books response"
+            require(jsonStart >= 0 && jsonEnd > jsonStart) {
+                "Invalid AnyFlip homepage response"
             }
 
             val root = Json.parseToJsonElement(
-                text.substring(start, end + 1),
+                text.substring(jsonStart, jsonEnd + 1),
             ).jsonObject
 
-            val books = root["values"]
+            val values = root["values"]
                 ?.jsonArray
                 .orEmpty()
 
-            if (books.isEmpty()) {
+            if (values.isEmpty()) {
                 break
             }
 
-            var newIds = 0
+            var newBooks = 0
 
-            for (book in books) {
-                val id = book
-                    .jsonObject["bookid"]
+            for (value in values) {
+                val book = value.jsonObject
+
+                val bLink = book["bLink"]
                     ?.jsonPrimitive
                     ?.content
+                    ?.trim()
                     ?: continue
 
-                if (seenIds.add(id)) {
-                    allIds += id
-                    newIds++
+                if (!seenLinks.add(bLink)) {
+                    continue
                 }
+
+                val title = book["title"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.trim()
+                    .orEmpty()
+
+                if (title.isEmpty()) {
+                    continue
+                }
+
+                val description = book["description"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.replace(
+                        Regex(
+                            "<br\\s*/?>",
+                            RegexOption.IGNORE_CASE,
+                        ),
+                        "\n",
+                    )
+                    ?.replace(
+                        Regex("<[^>]+>"),
+                        "",
+                    )
+                    ?.replace("&quot;", "\"")
+                    ?.replace("&amp;", "&")
+                    ?.replace("&lt;", "<")
+                    ?.replace("&gt;", ">")
+                    ?.trim()
+
+                val thumbnail = book["book_img"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?.trim()
+
+                books += BookSummary(
+                    id = bLink,
+                    title = title,
+                    description = description,
+                    thumbnail = thumbnail,
+                )
+
+                newBooks++
             }
 
-            if (books.size < pageSize || newIds == 0) {
+            if (values.size < pageSize || newBooks == 0) {
                 break
             }
 
             page++
         }
 
-        return allIds
+        return books
     }
 
+    /**
+     * Loads the actual AnyFlip publication.
+     *
+     * Unlike the homepage API, this uses the `bLink`, for example:
+     *
+     * https://online.anyflip.com/dbeui/zlmz/
+     */
     private suspend fun loadBook(id: String): Book {
         val url = "$ONLINE_BASE/$id/mobile/javascript/config.js"
 
-        val response = client.get(url)
+        val response = client.get(
+            url.toHttpUrl().newBuilder()
+                .build(),
+        )
+
         val text = response.body.string()
 
         val start = text.indexOf('{')
@@ -304,14 +358,25 @@ abstract class AnyFlip : KeiSource() {
         return "$ONLINE_BASE/$id/$path"
     }
 
-    private fun Book.toManga(): SManga = SManga.create().apply {
-        url = id
-        title = this@toManga.title
-        description = this@toManga.description
-        thumbnail_url = this@toManga.thumbnail
-        status = SManga.COMPLETED
-        genre = "Turma da Mônica Jovem"
-    }
+    private fun BookSummary.toManga(): SManga =
+        SManga.create().apply {
+            url = id
+            title = this@toManga.title
+            description = this@toManga.description
+            thumbnail_url = thumbnail
+            status = SManga.COMPLETED
+            genre = "Turma da Mônica Jovem"
+        }
+
+    private fun Book.toManga(): SManga =
+        SManga.create().apply {
+            url = id
+            title = this@toManga.title
+            description = this@toManga.description
+            thumbnail_url = this@toManga.thumbnail
+            status = SManga.COMPLETED
+            genre = "Turma da Mônica Jovem"
+        }
 
     private fun extractBookId(url: HttpUrl): String? {
         val segments = url.pathSegments.filter {
@@ -319,12 +384,12 @@ abstract class AnyFlip : KeiSource() {
         }
 
         return when {
-            url.host == "anyflip.com" &&
+            url.host == "online.anyflip.com" &&
                 segments.size >= 2 &&
                 segments[0] == "dbeui" ->
                 segments[1]
 
-            url.host == "online.anyflip.com" &&
+            url.host == "anyflip.com" &&
                 segments.size >= 2 &&
                 segments[0] == "dbeui" ->
                 segments[1]
@@ -332,6 +397,13 @@ abstract class AnyFlip : KeiSource() {
             else -> null
         }
     }
+
+    private data class BookSummary(
+        val id: String,
+        val title: String,
+        val description: String?,
+        val thumbnail: String?,
+    )
 
     private data class Book(
         val id: String,
