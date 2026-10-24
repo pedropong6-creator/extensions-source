@@ -353,4 +353,3 @@ abstract class AnyFlip : KeiSource() {
             "https://online.anyflip.com/dbeui"
     }
 }
-```
