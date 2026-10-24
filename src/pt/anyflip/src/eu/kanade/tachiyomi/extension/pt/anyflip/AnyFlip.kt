@@ -1,4 +1,3 @@
-```kotlin
 package eu.kanade.tachiyomi.extension.pt.anyflip
 
 import eu.kanade.tachiyomi.source.model.FilterList
