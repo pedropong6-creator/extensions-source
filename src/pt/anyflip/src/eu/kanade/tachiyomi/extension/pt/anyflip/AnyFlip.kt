@@ -1,3 +1,4 @@
+```kotlin
 package eu.kanade.tachiyomi.extension.pt.anyflip
 
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -14,39 +15,41 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 @Source
 abstract class AnyFlip : KeiSource() {
 
     override val supportsLatest: Boolean = false
 
-    override fun getHomeUrl(): String = "https://anyflip.com/homepage/dbeui/"
+    override fun getHomeUrl(): String =
+        "https://anyflip.com/homepage/dbeui/"
 
     override suspend fun getPopularManga(page: Int): MangasPage {
-        if (page > 1) {
+        val ids = discoverBookIds()
+
+        val mangas = ids.mapNotNull { id ->
+            runCatching {
+                loadBook(id).toManga()
+            }.getOrNull()
+        }
+
+        val pageSize = 20
+        val fromIndex = (page - 1) * pageSize
+        val toIndex = minOf(fromIndex + pageSize, mangas.size)
+
+        if (fromIndex >= mangas.size) {
             return MangasPage(emptyList(), false)
         }
 
-        // Temporary test:
-        // Replace YOUR_BOOK_ID with the ID from a working AnyFlip book URL.
-        //
-        // Example:
-        // https://anyflip.com/dbeui/abc123/
-        //
-        // becomes:
-        // "abc123"
-        val ids = listOf(
-            "fsif",
+        return MangasPage(
+            mangas = mangas.subList(fromIndex, toIndex),
+            hasNextPage = toIndex < mangas.size,
         )
-
-        val mangas = ids.map { id ->
-            loadBook(id).toManga()
-        }
-
-        return MangasPage(mangas, false)
     }
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage =
+        getPopularManga(page)
 
     override suspend fun getSearchMangaList(
         page: Int,
@@ -63,20 +66,16 @@ abstract class AnyFlip : KeiSource() {
             return getPopularManga(1)
         }
 
-        // Temporary test:
-        // Search currently uses the same known book.
-        val ids = listOf(
-            "fsif",
-        )
+        val ids = discoverBookIds()
 
-        val mangas = ids
-            .map { id ->
+        val mangas = ids.mapNotNull { id ->
+            runCatching {
                 loadBook(id).toManga()
-            }
-            .filter {
-                it.title.contains(q, ignoreCase = true) ||
-                    it.description.orEmpty().contains(q, ignoreCase = true)
-            }
+            }.getOrNull()
+        }.filter {
+            it.title.contains(q, ignoreCase = true) ||
+                it.description.orEmpty().contains(q, ignoreCase = true)
+        }
 
         return MangasPage(mangas, false)
     }
@@ -84,10 +83,13 @@ abstract class AnyFlip : KeiSource() {
     override suspend fun getMangaByUrl(url: HttpUrl): SManga? {
         val id = extractBookId(url) ?: return null
 
-        return loadBook(id).toManga()
+        return runCatching {
+            loadBook(id).toManga()
+        }.getOrNull()
     }
 
-    override fun getMangaUrl(manga: SManga): String = "https://anyflip.com/dbeui/${manga.url}/"
+    override fun getMangaUrl(manga: SManga): String =
+        "https://anyflip.com/dbeui/${manga.url}/"
 
     override suspend fun fetchMangaUpdate(
         manga: SManga,
@@ -118,7 +120,8 @@ abstract class AnyFlip : KeiSource() {
         return SMangaUpdate(details, chapterList)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String = "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
+    override fun getChapterUrl(chapter: SChapter): String =
+        "https://anyflip.com/dbeui/${chapter.url.trim('/')}/"
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val id = chapter.url.trim('/')
@@ -130,6 +133,80 @@ abstract class AnyFlip : KeiSource() {
                 imageUrl = imageUrl,
             )
         }
+    }
+
+    /**
+     * Gets all publication IDs belonging to the AnyFlip account.
+     *
+     * The public homepage is protected by Cloudflare, so we don't scrape
+     * the homepage itself. Instead, we use the endpoint the homepage
+     * uses to retrieve its publications:
+     *
+     * https://anyflip.com/hostInfo/get-homepage-books1.php
+     */
+    private suspend fun discoverBookIds(): List<String> {
+        val pageSize = 20
+        val allIds = mutableListOf<String>()
+        val seenIds = mutableSetOf<String>()
+
+        var page = 1
+
+        while (true) {
+            val url = "https://anyflip.com/hostInfo/get-homepage-books1.php"
+                .toHttpUrl()
+                .newBuilder()
+                .addQueryParameter("pageSize", pageSize.toString())
+                .addQueryParameter("page", page.toString())
+                .addQueryParameter("userid", USER_ID)
+                .addQueryParameter("myUid", "-1")
+                .addQueryParameter("lastTime", java.time.LocalDate.now().toString())
+                .build()
+
+            val response = client.get(url)
+            val text = response.body.string()
+
+            val start = text.indexOf('{')
+            val end = text.lastIndexOf('}')
+
+            require(start >= 0 && end > start) {
+                "Invalid AnyFlip homepage books response"
+            }
+
+            val root = Json.parseToJsonElement(
+                text.substring(start, end + 1),
+            ).jsonObject
+
+            val books = root["values"]
+                ?.jsonArray
+                .orEmpty()
+
+            if (books.isEmpty()) {
+                break
+            }
+
+            var newIds = 0
+
+            for (book in books) {
+                val id = book
+                    .jsonObject["bookid"]
+                    ?.jsonPrimitive
+                    ?.content
+                    ?: continue
+
+                if (seenIds.add(id)) {
+                    allIds += id
+                    newIds++
+                }
+            }
+
+            if (books.size < pageSize || newIds == 0) {
+                break
+            }
+
+            page++
+        }
+
+        return allIds
     }
 
     private suspend fun loadBook(id: String): Book {
@@ -232,14 +309,15 @@ abstract class AnyFlip : KeiSource() {
         return "$ONLINE_BASE/$id/$path"
     }
 
-    private fun Book.toManga(): SManga = SManga.create().apply {
-        url = id
-        title = this@toManga.title
-        description = this@toManga.description
-        thumbnail_url = this@toManga.thumbnail
-        status = SManga.COMPLETED
-        genre = "Turma da Mônica Jovem"
-    }
+    private fun Book.toManga(): SManga =
+        SManga.create().apply {
+            url = id
+            title = this@toManga.title
+            description = this@toManga.description
+            thumbnail_url = this@toManga.thumbnail
+            status = SManga.COMPLETED
+            genre = "Turma da Mônica Jovem"
+        }
 
     private fun extractBookId(url: HttpUrl): String? {
         val segments = url.pathSegments.filter {
@@ -270,7 +348,10 @@ abstract class AnyFlip : KeiSource() {
     )
 
     companion object {
+        private const val USER_ID = "52027903"
+
         private const val ONLINE_BASE =
             "https://online.anyflip.com/dbeui"
     }
 }
+```
