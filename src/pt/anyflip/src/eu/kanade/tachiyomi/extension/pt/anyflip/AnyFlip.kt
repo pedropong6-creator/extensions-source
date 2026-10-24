@@ -21,8 +21,7 @@ abstract class AnyFlip : KeiSource() {
 
     override val supportsLatest: Boolean = false
 
-    override fun getHomeUrl(): String =
-        "https://anyflip.com/homepage/dbeui/"
+    override fun getHomeUrl(): String = "https://anyflip.com/homepage/dbeui/"
 
     override suspend fun getPopularManga(page: Int): MangasPage {
         val books = discoverBooks()
@@ -45,8 +44,7 @@ abstract class AnyFlip : KeiSource() {
         )
     }
 
-    override suspend fun getLatestUpdates(page: Int): MangasPage =
-        getPopularManga(page)
+    override suspend fun getLatestUpdates(page: Int): MangasPage = getPopularManga(page)
 
     override suspend fun getSearchMangaList(
         page: Int,
@@ -81,8 +79,7 @@ abstract class AnyFlip : KeiSource() {
         }.getOrNull()
     }
 
-    override fun getMangaUrl(manga: SManga): String =
-        "$ONLINE_BASE/${manga.url.trim('/')}/"
+    override fun getMangaUrl(manga: SManga): String = "$ONLINE_BASE/${manga.url.trim('/')}/"
 
     override suspend fun fetchMangaUpdate(
         manga: SManga,
@@ -113,8 +110,7 @@ abstract class AnyFlip : KeiSource() {
         return SMangaUpdate(details, chapterList)
     }
 
-    override fun getChapterUrl(chapter: SChapter): String =
-        "$ONLINE_BASE/${chapter.url.trim('/')}/"
+    override fun getChapterUrl(chapter: SChapter): String = "$ONLINE_BASE/${chapter.url.trim('/')}/"
 
     override suspend fun getPageList(chapter: SChapter): List<Page> {
         val id = chapter.url.trim('/')
@@ -358,25 +354,23 @@ abstract class AnyFlip : KeiSource() {
         return "$ONLINE_BASE/$id/$path"
     }
 
-    private fun BookSummary.toManga(): SManga =
-        SManga.create().apply {
-            url = id
-            title = this@toManga.title
-            description = this@toManga.description
-            thumbnail_url = thumbnail
-            status = SManga.COMPLETED
-            genre = "Turma da Mônica Jovem"
-        }
+    private fun BookSummary.toManga(): SManga = SManga.create().apply {
+        url = id
+        title = this@toManga.title
+        description = this@toManga.description
+        thumbnail_url = thumbnail
+        status = SManga.COMPLETED
+        genre = "Turma da Mônica Jovem"
+    }
 
-    private fun Book.toManga(): SManga =
-        SManga.create().apply {
-            url = id
-            title = this@toManga.title
-            description = this@toManga.description
-            thumbnail_url = this@toManga.thumbnail
-            status = SManga.COMPLETED
-            genre = "Turma da Mônica Jovem"
-        }
+    private fun Book.toManga(): SManga = SManga.create().apply {
+        url = id
+        title = this@toManga.title
+        description = this@toManga.description
+        thumbnail_url = this@toManga.thumbnail
+        status = SManga.COMPLETED
+        genre = "Turma da Mônica Jovem"
+    }
 
     private fun extractBookId(url: HttpUrl): String? {
         val segments = url.pathSegments.filter {
